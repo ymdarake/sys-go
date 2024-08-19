@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -29,7 +30,7 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("client called")
-		StartClient()
+		StartChunkClient()
 	},
 }
 
@@ -113,4 +114,74 @@ func StartClient() {
 		}
 	}
 	conn.Close()
+}
+
+func StartChunkClient() {
+	conn, err := net.Dial("tcp", "localhost:8888")
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+
+	request, err := http.NewRequest(
+		"GET",
+		"http://localhost:8888",
+		nil,
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	err = request.Write(conn)
+	if err != nil {
+		panic(err)
+	}
+
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, request)
+	if err != nil {
+		panic(err)
+	}
+
+	dump, err := httputil.DumpResponse(response, false)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(string(dump))
+
+	if len(response.TransferEncoding) < 1 || response.TransferEncoding[0] != "chunked" {
+		panic("Wrong TransaferEncoding. Not 'chunked'.")
+	}
+
+	for {
+		// serve.go で指定している形式
+		// Readは新しい書き込みをタイムアウト付きで待ち受ける。
+		// 下記、connのReadについて抜粋。
+		// Read reads data from the connection.
+		// Read can be made to time out and return an error after a fixed
+		// time limit; see SetDeadline and SetReadDeadline.
+		// Read(b []byte) (n int, err error)
+		sizeStr, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			break
+		}
+		size, err := strconv.ParseInt(
+			string(sizeStr[:len(sizeStr)-2]),
+			16,
+			64,
+		)
+
+		if size == 0 {
+			break
+		}
+
+		if err != nil {
+			panic(err)
+		}
+
+		line := make([]byte, int(size))
+		io.ReadFull(reader, line)
+		reader.Discard(2)
+		fmt.Printf("	%d bytes: %s\n", size, string(line))
+	}
 }
