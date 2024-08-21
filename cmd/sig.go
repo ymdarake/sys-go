@@ -61,8 +61,15 @@ func startServer() {
 
 	server := newServer(sigctx)
 	serveWaitChan := make(chan struct{})
-	go server.Start(serveWaitChan)
+	defer close(serveWaitChan)
+	startErrChan := make(chan error)
+	defer close(startErrChan)
+	go server.Start(serveWaitChan, startErrChan)
+
 	select {
+	case err := <-startErrChan:
+		fmt.Printf("\nerr received: %+v\nexiting...", err)
+		return
 	case <-sigctx.Done():
 		fmt.Println("\nsignal received")
 	}
@@ -75,14 +82,18 @@ func startServer() {
 }
 
 type Server struct {
-	Start    func(done chan struct{})
+	Start    func(done chan struct{}, err chan error)
 	Shutdown func()
 }
 
 func newServer(ctx context.Context) Server {
 	return Server{
-		Start: func(done chan struct{}) {
+		Start: func(done chan struct{}, err chan error) {
 			fmt.Println("Starting server")
+			if time.Now().Second() < 30 {
+				err <- fmt.Errorf("error case sample")
+				return
+			}
 			ticker := time.NewTicker(1 * time.Second)
 		loop:
 			for {
@@ -91,8 +102,8 @@ func newServer(ctx context.Context) Server {
 					fmt.Println("\ntick")
 				case <-ctx.Done():
 					fmt.Println("\nWaiting for existing processes to complete")
-					time.Sleep(10 * time.Second)
-					close(done)
+					time.Sleep(2 * time.Second)
+					done <- struct{}{}
 					break loop
 				}
 			}
