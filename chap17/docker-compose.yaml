@@ -1,0 +1,8 @@
+services:
+  builder:
+    image: gcc:11-bullseye
+    platform: linux/amd64
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    command: bash -c "make asm && make show && echo && echo && echo "===============" && make header && make exec"
